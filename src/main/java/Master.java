@@ -1,22 +1,17 @@
-import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.ZooDefs;
-import org.apache.zookeeper.ZooKeeper;
-import org.apache.zookeeper.data.Stat;
+import org.apache.zookeeper.*;
 
 import java.io.IOException;
 import java.util.Random;
 
 public class Master {
 
-    private final String serverId;
+    private final String serverId = Integer.toHexString(new Random().nextInt());
     private final String hostPort;
 
     private ZooKeeper zk;
     private boolean isMaster = false;
 
     Master(String hostport) {
-        this.serverId = Integer.toHexString(new Random().nextInt());
         this.hostPort = hostport;
     }
 
@@ -35,27 +30,28 @@ public class Master {
     }
 
     /**
-     * Return true if there is a master or false otherwise.
+     * Find out if there's an existing master. If not then run for mastership.
      * <p>
      * Side-effect: if there's a master, then reset this.isMaster; isMaster reset to true indicates that we are
      * the master, false indicates that some other server is.
+     * <p>
+     * In case of connection issues we retry indefinitely.
      */
-    boolean checkMaster() throws InterruptedException {
-        while (true) {
-            try {
-                Stat stat = new Stat();
-                byte[] data = zk.getData("/master", false, stat);
-                isMaster = new String(data).equals(serverId);
-                return true;
-            } catch (KeeperException.NoNodeException e) {
-                // no master
-                return false;
-            } catch (KeeperException e) {
-                // Possibly KeeperException.ConnectionLossException
-                // do nothing and retry
-            }
-        }
+    void checkMaster() {
+        zk.getData("/master", false, checkMasterCallback, null);
     }
+
+    private AsyncCallback.DataCallback checkMasterCallback = (rc, path, ctx, data, stat) -> {
+        switch (KeeperException.Code.get(rc)) {
+            case OK:
+                isMaster = new String(data).equals(serverId);
+            case NONODE:
+                runForMaster();
+            default:
+                // Possibly a connection loss
+                checkMaster();
+        }
+    };
 
 
     /**
@@ -66,25 +62,32 @@ public class Master {
      * In case of connection issues will make sure that we are (or we are not) the master before returning. Retrying
      * to gain the mastership if necessary.
      */
-    void runForMaster() throws InterruptedException {
-        while (true) {
-            try {
-                zk.create("/master", serverId.getBytes(), ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
+    void runForMaster() {
+        zk.create(
+                "/master",
+                serverId.getBytes(),
+                ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                CreateMode.EPHEMERAL,
+                runForMasterCallback,
+                null
+        );
+    }
+
+    private final AsyncCallback.StringCallback runForMasterCallback = (rc, path, ctx, name) -> {
+        switch (KeeperException.Code.get(rc)) {
+            case OK:
                 isMaster = true;
                 break;
-            } catch (KeeperException.NodeExistsException e) {
-                // other master
+            case NODEEXISTS:
                 isMaster = false;
                 break;
-            } catch (KeeperException e) {
-                // Possibly KeeperException.ConnectionLossException
-                // do nothing and carry on
-            }
-            if (checkMaster()) {
-                break;
-            }
+            default:
+                // Possibly a connection loss
+                checkMaster();
+                return;
         }
-    }
+        System.out.println(">>> I'm " + (isMaster ? "" : "not ") + "the leader");
+    };
 
 
     public static void main(String[] args) throws IOException, InterruptedException {
@@ -92,13 +95,8 @@ public class Master {
         try {
             m.connect();
             m.runForMaster();
-            if (m.isMaster) {
-                System.out.println(">>> I'm the leader");
-                // wait for a bit
-                Thread.sleep(60000);
-            } else {
-                System.out.println(">>> Someone else is the leader");
-            }
+            // wait for a bit
+            Thread.sleep(60000);
         } finally {
             m.disconnect();
         }
