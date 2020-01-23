@@ -1,5 +1,4 @@
 import org.apache.zookeeper.*;
-import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,7 +59,9 @@ public class Worker {
         }
     };
 
-    /** Set my status */
+    /**
+     * Set my status
+     */
     void setStatus(String status) {
         this.status = status;
         updateStatus(status);
