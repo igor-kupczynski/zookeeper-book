@@ -1,0 +1,9 @@
+servers/z1/data/
+servers/z2/data/
+servers/z3/data/
+servers/**/*.cfg.dynamic.next
+
+.idea
+*.iml
+
+target
