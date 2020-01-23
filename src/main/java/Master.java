@@ -1,9 +1,13 @@
 import org.apache.zookeeper.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Random;
 
 public class Master {
+
+    private static final Logger LOG = LoggerFactory.getLogger(Master.class);
 
     private final String serverId = Integer.toHexString(new Random().nextInt());
     private final String hostPort;
@@ -19,7 +23,7 @@ public class Master {
      * Connect to zookeeper server
      */
     void connect() throws IOException {
-        zk = new ZooKeeper(hostPort, 15000, System.out::println);
+        zk = new ZooKeeper(hostPort, 15000, ev -> LOG.info(">>> Received event {}", ev));
     }
 
     /**
@@ -88,7 +92,7 @@ public class Master {
                 checkMaster();
                 return;
         }
-        System.out.println(">>> I'm " + (isMaster ? "" : "not ") + "the leader");
+        LOG.info(">>> I'm {}the leader", isMaster ? "" : "not ");
         if (isMaster) {
             bootstrap();
         }
@@ -121,13 +125,13 @@ public class Master {
                 ensureExists(path, (byte[]) ctx);
                 break;
             case OK:
-                System.out.println(">> Created path " + path);
+                LOG.info(">> Created path {}", path);
                 break;
             case NODEEXISTS:
-                System.out.println(">> Path exists " + path);
+                LOG.debug(">> Path exists {}", path);
                 break;
             default:
-                System.err.println("Can't create path " + path + ", error: " + KeeperException.create(code, path));
+                LOG.error("Can't create path", KeeperException.create(code, path));
         }
     };
 
