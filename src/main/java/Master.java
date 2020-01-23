@@ -45,8 +45,10 @@ public class Master {
         switch (KeeperException.Code.get(rc)) {
             case OK:
                 isMaster = new String(data).equals(serverId);
+                break;
             case NONODE:
                 runForMaster();
+                break;
             default:
                 // Possibly a connection loss
                 checkMaster();
@@ -87,6 +89,46 @@ public class Master {
                 return;
         }
         System.out.println(">>> I'm " + (isMaster ? "" : "not ") + "the leader");
+        if (isMaster) {
+            bootstrap();
+        }
+    };
+
+    /** Ensure the initial data are present in zookeeper */
+    void bootstrap() {
+        ensureExists("/assign", new byte[0]);
+        ensureExists("/status", new byte[0]);
+        ensureExists("/tasks", new byte[0]);
+        ensureExists("/workers", new byte[0]);
+    }
+
+    private void ensureExists(String path, byte[] data) {
+        zk.create(
+                path,
+                data,
+                ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                CreateMode.PERSISTENT,
+                ensureExistsCallback,
+                data
+        );
+    }
+
+    private final AsyncCallback.StringCallback ensureExistsCallback = (rc, path, ctx, name) -> {
+        KeeperException.Code code = KeeperException.Code.get(rc);
+        switch (code) {
+            case CONNECTIONLOSS:
+                // we've lost connection, retry
+                ensureExists(path, (byte[]) ctx);
+                break;
+            case OK:
+                System.out.println(">> Created path " + path);
+                break;
+            case NODEEXISTS:
+                System.out.println(">> Path exists " + path);
+                break;
+            default:
+                System.err.println("Can't create path " + path + ", error: " + KeeperException.create(code, path));
+        }
     };
 
 
